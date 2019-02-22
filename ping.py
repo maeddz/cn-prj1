@@ -209,15 +209,15 @@ class Ping(object):
         cmd = data[0]
         if cmd == 'send':
             print("Send data")
-            self.send_one_ping(self.socket, "Salam from " + self.ip)
+            with open(data[1], 'r') as f:
+                content = f.read()
+            chunks = list(map(''.join, zip(*[iter(content)]*2)))
+            for i in range(len(chunks)):
+                print chunks[i]
+                self.send_one_ping(self.socket, chunks[i], i+1)
         elif cmd == 'return':
             print("Receive Data")
             self.send_one_ping(self.socket, self.create_return_message(data[1]))
-            with open(data[1], 'r') as f:
-                lines = f.read()
-            chunks = list(map(''.join, zip(*[iter(lines)]*2)))
-            for i in range(len(chunks)):
-                self.send_one_ping(self.socket, chunks[i], i+1)
 
     def process_socket_reply(self):
         packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
