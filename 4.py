@@ -17,7 +17,8 @@ class MyTopo(Topo):
                 self.addLink(leftHost, newSwitch)
             else:
                 prevSwitchName = 's' + str(i)
-                self.addLink(prevSwitchName, switchName, max_queue_size=1)
+                self.addLink(prevSwitchName, switchName)
+                # self.addLink(prevSwitchName, switchName, max_queue_size=1)
 
             if i == n - 1:
                 self.addLink(rightHost, newSwitch)
