@@ -16,13 +16,10 @@ if len(sys.argv) < 2:
     exit()
 
 if sys.platform.startswith("win32"):
-    # On Windows, the best timer is time.clock()
     default_timer = time.clock
 else:
-    # On most other platforms the best timer is time.time()
     default_timer = time.time
 
-# ICMP parameters
 ICMP_ECHOREPLY = 0  # Echo reply (per RFC792)
 ICMP_ECHO = 8  # Echo request (per RFC792)
 ICMP_MAX_RECV = 2048  # Max size of incoming buffer
@@ -48,6 +45,34 @@ def to_ip(addr):
     if is_valid_ip4_address(addr):
         return addr
     return socket.gethostbyname(addr)
+
+
+class SentFile(object):
+    def __init__(self, filename, num_of_chunks):
+        self.filename = filename
+        self.num_of_chunks = num_of_chunks
+        self.chunks_received = []
+        self.return_wanted = False
+
+    def received_all(self):
+        return len(self.chunks_received) == self.num_of_chunks
+
+
+class PayloadMessage(object):
+    @staticmethod
+    def is_return_message(payload_message):
+        return RETURN_HOME_MESSAGE in payload_message
+
+    @staticmethod
+    def get_return_message_data(payload_message):
+        return payload_message.split('\n')[1:]
+
+    @staticmethod
+    def get_filename(payload_message):
+        if PayloadMessage.is_return_message(payload_message):
+            return payload_message.split()[2]
+        else:
+            return payload_message.split()[0]
 
 
 class Ping(object):
@@ -108,7 +133,6 @@ class Ping(object):
         print(msg)
 
         lost_count = self.send_count - self.receive_count
-        # print("%i packets lost" % lost_count)
         lost_rate = float(lost_count) / self.send_count * 100.0
 
         msg = "%d packets transmitted, %d packets received, %0.1f%% packet loss" % (
@@ -136,7 +160,6 @@ class Ping(object):
     def setup_signal_handler(self):
         signal.signal(signal.SIGINT, self.signal_handler)  # Handle Ctrl-C
         if hasattr(signal, "SIGBREAK"):
-            # Handle Ctrl-Break e.g. under Windows
             signal.signal(signal.SIGBREAK, self.signal_handler)
 
     # --------------------------------------------------------------------------
@@ -147,6 +170,59 @@ class Ping(object):
         return dict(zip(names, unpacked_data))
 
     # --------------------------------------------------------------------------
+
+    def generate_two_random_ips(self):
+        h1, h2 = random.sample(range(1, self.num_of_hosts + 1), 2)
+        return ['10.0.0.' + str(h1), '10.0.0.' + str(h2)]
+
+    def send_one_ping(self, current_socket, data, id=0x03):
+        print "SENDING:"
+        print data
+        src, dst = self.source, self.destination
+        # TODO: check if loopback address (address of myself) is ok or not?
+
+        ip = ImpactPacket.IP()
+        ip.set_ip_src(src)
+        ip.set_ip_dst(dst)
+        icmp = ImpactPacket.ICMP()
+        icmp.set_icmp_type(icmp.ICMP_ECHO)
+        icmp.contains(ImpactPacket.Data(data))
+        ip.contains(icmp)
+        icmp.set_icmp_id(id)
+        # TODO: Set when multiple packets are needed for sending a file
+        icmp.set_icmp_cksum(0)
+        icmp.auto_checksum = 1
+        send_time = default_timer()
+        try:
+            current_socket.sendto(ip.get_packet(), (dst, 1))
+        except socket.error:
+            current_socket.close()
+            return
+        return send_time
+
+    def get_owner_ip(self, filename):
+        for name, ip in self.return_list:
+            if name == filename:
+                return ip
+        return None
+
+    def is_in_return_list(self, filename):
+        for name, _ in self.return_list:
+            if name == filename:
+                return True
+        return False
+
+    def get_sent_file_data(self, filename):
+        for item in self.send_list:
+            if item.filename == filename:
+                return item
+        return None
+
+    def is_in_send_list(self, filename):
+        for item in self.send_list:
+            if filename == item.filename:
+                return item.return_wanted
+        return False
 
     def run(self):
         while True:
@@ -162,59 +238,10 @@ class Ping(object):
                     print("else")
             time.sleep(1)
 
-    def generate_two_random_ips(self):
-        h1, h2 = random.sample(range(1, self.num_of_hosts + 1), 2)
-        return ['10.0.0.' + str(h1), '10.0.0.' + str(h2)]
-
-    # send an ICMP ECHO_REQUEST packet
-    def send_one_ping(self, current_socket, data, id=0x03):
-        print "SENDING:"
-        print data
-        # if RETURN_HOME_MESSAGE in data:
-        #     print "RETURN HOOOOOOOOOOMEEEEEEEEEEEEEEEEEEEEEEEE"
-        # Create a new IP packet and set its source and destination IP addresses
-        src, dst = self.source, self.destination
-        # TODO: check if loopback address (address of myself) is ok or not?
-
-        ip = ImpactPacket.IP()
-        ip.set_ip_src(src)
-        ip.set_ip_dst(dst)
-
-        # Create a new ICMP ECHO_REQUEST packet
-        icmp = ImpactPacket.ICMP()
-        icmp.set_icmp_type(icmp.ICMP_ECHO)
-
-        # inlude a small payload inside the ICMP packet
-        # and have the ip packet contain the ICMP packet
-        icmp.contains(ImpactPacket.Data(data))
-        ip.contains(icmp)
-
-        # give the ICMP packet some ID
-        icmp.set_icmp_id(id)
-        # TODO: Set when multiple packets are needed for sending a file
-
-        # set the ICMP packet checksum
-        icmp.set_icmp_cksum(0)
-        icmp.auto_checksum = 1
-
-        send_time = default_timer()
-
-        # send the provided ICMP packet over a 3rd socket
-        try:
-            current_socket.sendto(ip.get_packet(), (dst, 1))  # Port number is irrelevant for ICMP
-        except socket.error:
-            current_socket.close()
-            return
-
-        return send_time
-
-    # Receive the ping from the socket.
-    # timeout = in ms
     def process_user_input(self):
         data = raw_input().split()
         cmd, filename = data[0], data[1]
         if cmd == 'send':
-            print("Send data")
             with open(filename, 'r') as f:
                 content = f.read()
             chunks = list(map(''.join, zip(*[iter(content)]*3)))
@@ -222,46 +249,16 @@ class Ping(object):
             print "----"
             print chunks
             print "----"
-            self.send_list.append([filename, len(chunks), 0, [], False, False])
-            # [2] is for number of chunks received, [3] chunks received are stored here (is a tuple), [4]is for when return wanted, [5] is for when file completely received
+            self.send_list.append(SentFile(filename, len(chunks)))
             for i in range(len(chunks)):
                 self.source, self.destination = self.generate_two_random_ips()
                 data = filename + "\n" + chunks[i]
                 self.send_one_ping(self.socket, data, i)
         elif cmd == 'return':
-            print("Receive Data")
-            i = self.get_send_file_data(filename)
-            self.send_list[i][4] = True
+            sent_file = self.get_sent_file_data(filename)
+            sent_file.return_wanted = True
             self.source, self.destination = self.generate_two_random_ips()
-            self.send_one_ping(self.socket, self.create_return_message(data[1]))
-
-    def get_return_ip(self, received_data):
-        filename = received_data.split()[0]
-        for name, ip in self.return_list:
-            if name == filename:
-                return ip
-        return None
-
-    def is_in_return_list(self, received_data):
-        filename = received_data.split()[0]
-        for name, _ in self.return_list:
-            if name == filename:
-                return True
-        return False
-
-    def get_send_file_data(self, filename):
-        for index, item in enumerate(self.send_list):
-            if item[0] == filename:
-                return index
-        return -1
-
-    def is_in_send_list(self, received_data):
-        filename = received_data.split()[0]
-        for item in self.send_list:
-            if filename == item[0]:
-                return item[4]
-        return False
-
+            self.send_one_ping(self.socket, self.create_return_message(filename))
 
     def process_socket_reply(self):
         packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
@@ -285,44 +282,36 @@ class Ping(object):
         if ip_header['ttl'] != 64:
             print "chert"
             return
+
         received_data = packet_data[28:]
         print "RECEIVED:"
         print received_data
-        if RETURN_HOME_MESSAGE in received_data:
-            print "---------------user wants data to return"
-            _, ip, filename = received_data.split()
-            self.return_list.append((ip, filename))
-        elif self.is_in_return_list(received_data):
-            print "Return to owner"
-            self.destination = self.get_return_ip(received_data)
-            self.source = self.ip
-            self.send_one_ping(self.socket, received_data)
-            return
-        elif self.is_in_send_list(received_data):
-            print "my file is back"
-            i = self.get_send_file_data(received_data.split()[0])
-            self.send_list[i][2]+=1
-            self.send_list[i][3].append((received_data, icmp_header["packet_id"]))
-            if self.send_list[i][2] == self.send_list[i][1]:
-                print "Hamasho gerefti"
-                self.send_list[i][5] = True
-                #TODO: save file (headeresh!)
-            return
-                
-        receive_time = default_timer()
 
-        # if icmp_header["packet_id"] == self.own_id: # Our packet!!!
-        # it should not be our packet!!!Why?
-        
-        print "-----IP HEADER IS"
-        print ip_header
+        if PayloadMessage.is_return_message(received_data):
+            print "---------------user wants data to return"
+            ip, filename = PayloadMessage.get_return_message_data(received_data)
+            self.return_list.append((ip, filename))
+        else:
+            filename = PayloadMessage.get_filename(received_data)
+            if self.is_in_return_list(filename):
+                print "Return to owner"
+                self.destination = self.get_owner_ip(filename)
+                self.source = self.ip
+                self.send_one_ping(self.socket, received_data)
+                return
+            elif self.is_in_send_list(filename):
+                print "my file is back"
+                sent_file = self.get_sent_file_data(filename)
+                sent_file.chunks_received.append((received_data, icmp_header["packet_id"]))
+                if sent_file.received_all():
+                    print "Hamasho gerefti"
+                    #TODO: save file (headeresh!)
+                return
+        receive_time = default_timer()
         packet_size = len(packet_data) - 28
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-        # dest_ip = socket.inet_ntoa(struct.pack("!I", ip_header["dest_ip"]))
         self.source, self.destination = self.generate_two_random_ips()
         self.send_one_ping(self.socket, received_data)
-
-        # XXX: Why not ip = address[0] ???
         return receive_time, packet_size, ip, ip_header, icmp_header
 
     def create_return_message(self, filename):
