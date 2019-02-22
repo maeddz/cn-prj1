@@ -9,6 +9,8 @@ import random
 from impacket import ImpactPacket
 import commands
 
+RETURN_HOME_MESSAGE = "@RETURN_HOME@"
+
 if len(sys.argv) < 2:
     print "add number of hosts as argv 1"
     exit()
@@ -50,6 +52,7 @@ def to_ip(addr):
 
 class Ping(object):
     def __init__(self, timeout=1000, packet_size=55, own_id=None, quiet_output=False, udp=False, bind=None):
+        self.return_list = []
         self.quiet_output = quiet_output
         self.num_of_hosts = int(sys.argv[1])
         self.source = None
@@ -157,7 +160,7 @@ class Ping(object):
                     self.process_socket_reply()
                 else:
                     print("else")
-            time.sleep(5)
+            time.sleep(0.5)
 
     def generate_two_random_ips(self):
         h1, h2 = random.sample(range(1, self.num_of_hosts + 1), 2)
@@ -165,7 +168,10 @@ class Ping(object):
 
     # send an ICMP ECHO_REQUEST packet
     def send_one_ping(self, current_socket, data, id=0x03):
-
+        print "SENDING:"
+        print data
+        # if RETURN_HOME_MESSAGE in data:
+        #     print "RETURN HOOOOOOOOOOMEEEEEEEEEEEEEEEEEEEEEEEE"
         # Create a new IP packet and set its source and destination IP addresses
         src, dst = self.generate_two_random_ips()
         # TODO: check if loopback address (address of myself) is ok or not?
@@ -206,15 +212,15 @@ class Ping(object):
     # timeout = in ms
     def process_user_input(self):
         data = raw_input().split()
-        cmd = data[0]
+        cmd, filename = data[0], data[1]
         if cmd == 'send':
             print("Send data")
             with open(data[1], 'r') as f:
                 content = f.read()
-            chunks = list(map(''.join, zip(*[iter(content)]*2)))
+            chunks = list(map(''.join, zip(*[iter(content)]*3)))
+            chunks.insert(0, filename)
             for i in range(len(chunks)):
-                print chunks[i]
-                self.send_one_ping(self.socket, chunks[i], i+1)
+                self.send_one_ping(self.socket, chunks[i], i)
         elif cmd == 'return':
             print("Receive Data")
             self.send_one_ping(self.socket, self.create_return_message(data[1]))
@@ -230,10 +236,15 @@ class Ping(object):
             data=packet_data[20:28]
         )
         received_data = packet_data[28:]
-        if "return" in received_data:
-            print "user wants data to return"
-            print received_data
-            # add ip, filename to list
+        print "RECEIVED:"
+        print received_data
+        if RETURN_HOME_MESSAGE in received_data:
+            print "---------------user wants data to return"
+            _, ip, filename = received_data.split()
+            self.return_list.append((ip, filename))
+        else:
+
+        # add ip, filename to list
 
         receive_time = default_timer()
 
@@ -250,19 +261,15 @@ class Ping(object):
         )
         packet_size = len(packet_data) - 28
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-        dest_ip = socket.inet_ntoa(struct.pack("!I", ip_header["dest_ip"]))
+        # dest_ip = socket.inet_ntoa(struct.pack("!I", ip_header["dest_ip"]))
 
-        print "Data: "
-        print (ip, dest_ip, packet_data[28:])
-        print "----"
-        print("Send data")
         self.send_one_ping(self.socket, received_data)
 
         # XXX: Why not ip = address[0] ???
         return receive_time, packet_size, ip, ip_header, icmp_header
 
     def create_return_message(self, filename):
-        msg = "return\n"
+        msg = RETURN_HOME_MESSAGE + "\n"
         msg += self.ip + "\n"
         msg += filename
         return msg
