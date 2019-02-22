@@ -64,7 +64,7 @@ class Ping(object):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         self.ip = commands.getoutput("/sbin/ifconfig").split("\n")[1].split()[1][5:]
-
+        self.send_list = []
         if own_id is None:
             self.own_id = os.getpid() & 0xFFFF
         else:
@@ -160,7 +160,7 @@ class Ping(object):
                     self.process_socket_reply()
                 else:
                     print("else")
-            time.sleep(0.5)
+            time.sleep(1)
 
     def generate_two_random_ips(self):
         h1, h2 = random.sample(range(1, self.num_of_hosts + 1), 2)
@@ -173,7 +173,7 @@ class Ping(object):
         # if RETURN_HOME_MESSAGE in data:
         #     print "RETURN HOOOOOOOOOOMEEEEEEEEEEEEEEEEEEEEEEEE"
         # Create a new IP packet and set its source and destination IP addresses
-        src, dst = self.generate_two_random_ips()
+        src, dst = self.source, self.destination
         # TODO: check if loopback address (address of myself) is ok or not?
 
         ip = ImpactPacket.IP()
@@ -215,15 +215,53 @@ class Ping(object):
         cmd, filename = data[0], data[1]
         if cmd == 'send':
             print("Send data")
-            with open(data[1], 'r') as f:
+            with open(filename, 'r') as f:
                 content = f.read()
             chunks = list(map(''.join, zip(*[iter(content)]*3)))
-            chunks.insert(0, filename)
+            print "chunks are:"
+            print "----"
+            print chunks
+            print "----"
+            self.send_list.append([filename, len(chunks), 0, [], False, False])
+            # [2] is for number of chunks received, [3] chunks received are stored here (is a tuple), [4]is for when return wanted, [5] is for when file completely received
             for i in range(len(chunks)):
-                self.send_one_ping(self.socket, chunks[i], i)
+                self.source, self.destination = self.generate_two_random_ips()
+                data = filename + "\n" + chunks[i]
+                self.send_one_ping(self.socket, data, i)
         elif cmd == 'return':
             print("Receive Data")
+            i = self.get_send_file_data(filename)
+            self.send_list[i][4] = True
+            self.source, self.destination = self.generate_two_random_ips()
             self.send_one_ping(self.socket, self.create_return_message(data[1]))
+
+    def get_return_ip(self, received_data):
+        filename = received_data.split()[0]
+        for name, ip in self.return_list:
+            if name == filename:
+                return ip
+        return None
+
+    def is_in_return_list(self, received_data):
+        filename = received_data.split()[0]
+        for name, _ in self.return_list:
+            if name == filename:
+                return True
+        return False
+
+    def get_send_file_data(self, filename):
+        for index, item in enumerate(self.send_list):
+            if item[0] == filename:
+                return index
+        return -1
+
+    def is_in_send_list(self, received_data):
+        filename = received_data.split()[0]
+        for item in self.send_list:
+            if filename == item[0]:
+                return item[4]
+        return False
+
 
     def process_socket_reply(self):
         packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
@@ -235,21 +273,6 @@ class Ping(object):
             struct_format="!BBHHH",
             data=packet_data[20:28]
         )
-        received_data = packet_data[28:]
-        print "RECEIVED:"
-        print received_data
-        if RETURN_HOME_MESSAGE in received_data:
-            print "---------------user wants data to return"
-            _, ip, filename = received_data.split()
-            self.return_list.append((ip, filename))
-        else:
-
-        # add ip, filename to list
-
-        receive_time = default_timer()
-
-        # if icmp_header["packet_id"] == self.own_id: # Our packet!!!
-        # it should not be our packet!!!Why?
         ip_header = self.header2dict(
             names=[
                 "version", "type", "length",
@@ -259,10 +282,44 @@ class Ping(object):
             struct_format="!BBHHHBBHII",
             data=packet_data[:20]
         )
+        if ip_header['ttl'] != 64:
+            print "chert"
+            return
+        received_data = packet_data[28:]
+        print "RECEIVED:"
+        print received_data
+        if RETURN_HOME_MESSAGE in received_data:
+            print "---------------user wants data to return"
+            _, ip, filename = received_data.split()
+            self.return_list.append((ip, filename))
+        elif self.is_in_return_list(received_data):
+            print "Return to owner"
+            self.destination = self.get_return_ip(received_data)
+            self.source = self.ip
+            self.send_one_ping(self.socket, received_data)
+            return
+        elif self.is_in_send_list(received_data):
+            print "my file is back"
+            i = self.get_send_file_data(received_data.split()[0])
+            self.send_list[i][2]+=1
+            self.send_list[i][3].append((received_data, icmp_header["packet_id"]))
+            if self.send_list[i][2] == self.send_list[i][1]:
+                print "Hamasho gerefti"
+                self.send_list[i][5] = True
+                #TODO: save file (headeresh!)
+            return
+                
+        receive_time = default_timer()
+
+        # if icmp_header["packet_id"] == self.own_id: # Our packet!!!
+        # it should not be our packet!!!Why?
+        
+        print "-----IP HEADER IS"
+        print ip_header
         packet_size = len(packet_data) - 28
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
         # dest_ip = socket.inet_ntoa(struct.pack("!I", ip_header["dest_ip"]))
-
+        self.source, self.destination = self.generate_two_random_ips()
         self.send_one_ping(self.socket, received_data)
 
         # XXX: Why not ip = address[0] ???
