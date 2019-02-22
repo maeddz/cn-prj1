@@ -7,6 +7,7 @@ import time
 import socket
 import random
 from impacket import ImpactPacket
+import commands
 
 if len(sys.argv) < 2:
     print "add number of hosts as argv 1"
@@ -59,6 +60,7 @@ class Ping(object):
         self.bind = bind
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        self.ip = commands.getoutput("/sbin/ifconfig").split("\n")[1].split()[1][5:]
 
         if own_id is None:
             self.own_id = os.getpid() & 0xFFFF
@@ -204,9 +206,13 @@ class Ping(object):
     # timeout = in ms
     def process_user_input(self):
         data = raw_input().split()
-        if data[0] == 'send':
+        cmd = data[0]
+        if cmd == 'send':
             print("Send data")
-            self.send_one_ping(self.socket, "Salam")
+            self.send_one_ping(self.socket, "Salam from " + self.ip)
+        elif cmd == 'return':
+            print("Receive Data")
+            self.send_one_ping(self.socket, self.create_return_message(data[1]))
 
     def process_socket_reply(self):
         packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
@@ -218,6 +224,11 @@ class Ping(object):
             struct_format="!BBHHH",
             data=packet_data[20:28]
         )
+        received_data = packet_data[28:]
+        if "return" in received_data:
+            print "user wants data to return"
+            print received_data
+            # add ip, filename to list
 
         receive_time = default_timer()
 
@@ -236,7 +247,6 @@ class Ping(object):
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
         dest_ip = socket.inet_ntoa(struct.pack("!I", ip_header["dest_ip"]))
 
-        received_data = packet_data[28:]
         print "Data: "
         print (ip, dest_ip, packet_data[28:])
         print "----"
@@ -245,6 +255,12 @@ class Ping(object):
 
         # XXX: Why not ip = address[0] ???
         return receive_time, packet_size, ip, ip_header, icmp_header
+
+    def create_return_message(self, filename):
+        msg = "return\n"
+        msg += self.ip + "\n"
+        msg += filename
+        return msg
 
 
 def ping(timeout=1000, packet_size=55, *args, **kwargs):
