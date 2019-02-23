@@ -1,5 +1,6 @@
 from mininet.topo import Topo
 
+
 class MyTopo(Topo):
     def __init__(self, n=2):
         if n < 2:
