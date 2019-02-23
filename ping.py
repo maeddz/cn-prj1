@@ -12,9 +12,7 @@ if len(sys.argv) < 2:
     exit()
 
 RETURN_HOME_MESSAGE = "@RETURN_HOME@"
-FINISH_TRANSMISSION_MESSAGE = "@FINISH_TRANS@"
-RETURNED_TO_OWNER_MESSAGE = "@RETURNED@"
-CHUNK_SIZE = 10
+CHUNK_SIZE = 64
 ICMP_ECHOREPLY = 0  # Echo reply (per RFC792)
 ICMP_ECHO = 8  # Echo request (per RFC792)
 ICMP_MAX_RECV = 2048  # Max size of incoming buffer
@@ -39,7 +37,6 @@ class SentFile(object):
         f = open(filename, "w+")
         for chunk in sorted(self.chunks_received, key=self.get_key):
             data = '\n'.join(chunk[0].split('\n')[1:])  # ignore file name
-            print "Writing Data: {0}".format(data)
             f.write(data)
         f.close()
 
@@ -57,10 +54,6 @@ class PayloadMessage(object):
         return RETURN_HOME_MESSAGE in payload_message
 
     @staticmethod
-    def is_returned_to_owner_message(payload_message):
-        return RETURNED_TO_OWNER_MESSAGE in payload_message
-
-    @staticmethod
     def get_return_message_data(payload_message):
         return payload_message.split('\n')[1:]
 
@@ -68,26 +61,20 @@ class PayloadMessage(object):
     def get_filename(payload_message):
         if PayloadMessage.is_return_message(payload_message):
             return payload_message.split()[2]
-        elif PayloadMessage.is_returned_to_owner_message(payload_message):
-            return payload_message.split()[1]
         else:
             return payload_message.split()[0]
-
-    @staticmethod
-    def is_finish_transmission_message(payload_message):
-        return FINISH_TRANSMISSION_MESSAGE in payload_message
 
 
 class Ping(object):
     def __init__(self):
         self.return_list = []
+        self.send_list = []
         self.num_of_hosts = int(sys.argv[1])
         self.source = None
         self.destination = None
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
         self.ip = commands.getoutput("/sbin/ifconfig").split("\n")[1].split()[1][5:]
-        self.send_list = []
 
     @staticmethod
     def header2dict(names, struct_format, data):
@@ -108,7 +95,7 @@ class Ping(object):
         return [h1, h2]
 
     def send_one_ping(self, current_socket, data, identifier):
-        print "SENDING FROM {0} TO {1}".format(self.source, self.destination)
+        print "-Sending a ICMP_ECHOREQUEST packet from {0} to {1}".format(self.source, self.destination)
         src, dst = self.source, self.destination
         ip = ImpactPacket.IP()
         ip.set_ip_src(src)
@@ -154,8 +141,8 @@ class Ping(object):
 
     def run(self):
         while True:
-            inputready, _, _ = select.select([self.socket, sys.stdin], [], [])
-            for sender in inputready:
+            input_ready, _, _ = select.select([self.socket, sys.stdin], [], [])
+            for sender in input_ready:
                 if sender == sys.stdin:
                     self.process_user_input()
                 elif sender == self.socket:
@@ -173,7 +160,6 @@ class Ping(object):
             with open(filename, 'r') as f:
                 content = f.read()
             chunks = self.split_len(content, CHUNK_SIZE)
-            print chunks
             for i in range(len(chunks)):
                 self.source, self.destination = self.generate_two_random_ips()
                 data = filename + "\n" + chunks[i]
@@ -211,7 +197,7 @@ class Ping(object):
 
         received_data = packet_data[28:]
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-        print "-Received a packet from {0}".format(ip)
+        print "-Received a ICMP_ECHOREPLY packet from {0}".format(ip)
 
         if PayloadMessage.is_return_message(received_data):
             ip, filename = PayloadMessage.get_return_message_data(received_data)
@@ -222,12 +208,11 @@ class Ping(object):
         else:
             filename = PayloadMessage.get_filename(received_data)
             if self.is_in_send_list(filename):
-                print "-Received a part of file {0} returned home.".format(filename)
+                print "-A part of file {0} returned home.".format(filename)
                 sent_file = self.get_sent_file_data(filename)
                 sent_file.chunks_received.append((received_data, icmp_header["packet_id"]))
                 if sent_file.received_all():
                     print "-All parts of file {0} received!".format(filename)
-                    print sent_file.chunks_received
                     sent_file.save()
                 return
             elif self.is_in_return_list(filename):
