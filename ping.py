@@ -17,6 +17,7 @@ ICMP_ECHOREPLY = 0  # Echo reply (per RFC792)
 ICMP_ECHO = 8  # Echo request (per RFC792)
 ICMP_MAX_RECV = 2048  # Max size of incoming buffer
 
+
 class SentFile(object):
     def __init__(self, filename, num_of_chunks):
         self.filename = filename
@@ -138,15 +139,8 @@ class Ping(object):
     def create_return_message(self, filename):
         return RETURN_HOME_MESSAGE + "\n" + self.ip + "\n" + filename
 
-    def run(self):
-        while True:
-            input_ready, _, _ = select.select([self.socket, sys.stdin], [], [])
-            for sender in input_ready:
-                if sender == sys.stdin:
-                    self.process_user_input()
-                elif sender == self.socket:
-                    self.process_socket_reply()
-            time.sleep(1)
+    def remove_sent_file(self, sent_file):
+        self.send_list.remove(sent_file)
 
     @staticmethod
     def split_len(seq, length):
@@ -156,6 +150,16 @@ class Ping(object):
         with open(filename, 'r') as f:
             content = f.read()
         return self.split_len(content, CHUNK_SIZE)
+
+    def run(self):
+        while True:
+            input_ready, _, _ = select.select([self.socket, sys.stdin], [], [])
+            for sender in input_ready:
+                if sender == sys.stdin:
+                    self.process_user_input()
+                elif sender == self.socket:
+                    self.process_socket_reply()
+            time.sleep(1)
 
     def process_user_input(self):
         data = raw_input().split()
@@ -225,6 +229,7 @@ class Ping(object):
                 if sent_file.received_all():
                     print "-All parts of file {0} received!".format(filename)
                     sent_file.save()
+                    self.remove_sent_file(sent_file)
                 return
             elif self.is_in_return_list(filename):
                 print "-Returning packet to owner. Owner ip is {0}".format(self.get_owner_ip(filename))
