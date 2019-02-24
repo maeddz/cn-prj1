@@ -17,7 +17,6 @@ ICMP_ECHOREPLY = 0  # Echo reply (per RFC792)
 ICMP_ECHO = 8  # Echo request (per RFC792)
 ICMP_MAX_RECV = 2048  # Max size of incoming buffer
 
-
 class SentFile(object):
     def __init__(self, filename, num_of_chunks):
         self.filename = filename
@@ -173,7 +172,7 @@ class Ping(object):
             filename = data[1]
             sent_file = self.get_sent_file_data(filename)
             if sent_file is None:
-                print "YOU ARE WANTING FILE {0} WHICH IS NOT SENT BY YOU.".format(filename)
+                print "-The file {0} isn't sent by you.".format(filename)
             else:
                 sent_file.return_wanted = True
                 self.source, self.destination = self.generate_two_random_ips()
