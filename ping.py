@@ -95,7 +95,7 @@ class Ping(object):
         return [h1, h2]
 
     def send_one_ping(self, current_socket, data, identifier):
-        print "-Sending a ICMP_ECHOREQUEST packet from {0} to {1}".format(self.source, self.destination)
+        print "-Sending an ICMP ECHO_REQUEST packet from {0} to {1}".format(self.source, self.destination)
         src, dst = self.source, self.destination
         ip = ImpactPacket.IP()
         ip.set_ip_src(src)
@@ -153,28 +153,40 @@ class Ping(object):
     def split_len(seq, length):
         return [seq[i:i + length] for i in range(0, len(seq), length)]
 
+    def get_chunks_from_file(self, filename):
+        with open(filename, 'r') as f:
+            content = f.read()
+        return self.split_len(content, CHUNK_SIZE)
+
     def process_user_input(self):
         data = raw_input().split()
-        cmd, filename = data[0], data[1]
+        cmd = data[0]
         if cmd == 'send':
-            with open(filename, 'r') as f:
-                content = f.read()
-            chunks = self.split_len(content, CHUNK_SIZE)
+            filename = data[1]
+            chunks = self.get_chunks_from_file(filename)
             for i in range(len(chunks)):
                 self.source, self.destination = self.generate_two_random_ips()
                 data = filename + "\n" + chunks[i]
                 self.send_one_ping(self.socket, data, i)
             self.send_list.append(SentFile(filename, len(chunks)))
         elif cmd == 'return':
+            filename = data[1]
             sent_file = self.get_sent_file_data(filename)
-            sent_file.return_wanted = True
-            self.source, self.destination = self.generate_two_random_ips()
-            self.send_one_ping(self.socket, self.create_return_message(filename), 0xFFFF)
+            if sent_file is None:
+                print "YOU ARE WANTING FILE {0} WHICH IS NOT SENT BY YOU.".format(filename)
+            else:
+                sent_file.return_wanted = True
+                self.source, self.destination = self.generate_two_random_ips()
+                self.send_one_ping(self.socket, self.create_return_message(filename), 0xFFFF)
+        elif cmd == 'exit':
+            print "-Exiting..."
+            time.sleep(0.5)
+            exit()
         else:
             print "-Wrong command."
 
     def process_socket_reply(self):
-        packet_data, address = self.socket.recvfrom(ICMP_MAX_RECV)
+        packet_data, _ = self.socket.recvfrom(ICMP_MAX_RECV)
         icmp_header = Ping.header2dict(
             names=[
                 "type", "code", "checksum",
@@ -197,7 +209,7 @@ class Ping(object):
 
         received_data = packet_data[28:]
         ip = socket.inet_ntoa(struct.pack("!I", ip_header["src_ip"]))
-        print "-Received a ICMP_ECHOREPLY packet from {0}".format(ip)
+        print "-Received an ICMP ECHO_REPLY packet from {0}".format(ip)
 
         if PayloadMessage.is_return_message(received_data):
             ip, filename = PayloadMessage.get_return_message_data(received_data)
@@ -208,7 +220,7 @@ class Ping(object):
         else:
             filename = PayloadMessage.get_filename(received_data)
             if self.is_in_send_list(filename):
-                print "-A part of file {0} returned home.".format(filename)
+                print "-One part of file {0} returned home.".format(filename)
                 sent_file = self.get_sent_file_data(filename)
                 sent_file.chunks_received.append((received_data, icmp_header["packet_id"]))
                 if sent_file.received_all():
