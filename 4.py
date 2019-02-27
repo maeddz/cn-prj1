@@ -8,21 +8,21 @@ class MyTopo(Topo):
 
         Topo.__init__(self)
 
-        leftHost = self.addHost('h1')
-        rightHost = self.addHost('h2')
+        left_host = self.addHost('h1')
+        right_host = self.addHost('h2')
 
         for i in range(n):
-            switchName = 's' + str(i+1)
-            newSwitch = self.addSwitch(switchName)
+            switch_name = 's' + str(i+1)
+            new_switch = self.addSwitch(switch_name)
             if i == 0:
-                self.addLink(leftHost, newSwitch)
+                self.addLink(left_host, new_switch)
             else:
-                prevSwitchName = 's' + str(i)
-                self.addLink(prevSwitchName, switchName)
-                # self.addLink(prevSwitchName, switchName, max_queue_size=1)
+                prev_switch_name = 's' + str(i)
+                self.addLink(prev_switch_name, switch_name)
+                # self.addLink(prev_switch_name, switchName, max_queue_size=1)
 
             if i == n - 1:
-                self.addLink(rightHost, newSwitch)
+                self.addLink(right_host, new_switch)
                 
 
 num_of_switches = 2
