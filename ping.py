@@ -4,6 +4,9 @@ import sys
 import time
 import socket
 import random
+import base64
+import six
+import string
 from impacket import ImpactPacket
 import commands
 
@@ -19,9 +22,10 @@ ICMP_MAX_RECV = 2048  # Max size of incoming buffer
 
 
 class SentFile(object):
-    def __init__(self, filename, num_of_chunks):
+    def __init__(self, filename, num_of_chunks, encryption_key):
         self.filename = filename
         self.num_of_chunks = num_of_chunks
+        self.encryption_key = encryption_key
         self.chunks_received = []
         self.return_wanted = False
 
@@ -35,9 +39,10 @@ class SentFile(object):
     def save(self):
         filename = "RECEIVED_" + self.filename
         f = open(filename, "w+")
+        received_data = ""
         for chunk in sorted(self.chunks_received, key=self.get_key):
-            data = '\n'.join(chunk[0].split('\n')[1:])  # ignore file name
-            f.write(data)
+            received_data += '\n'.join(chunk[0].split('\n')[1:])  # ignore file name
+        f.write(Ping.decrypt(received_data, self.encryption_key))
         f.close()
 
 
@@ -146,10 +151,37 @@ class Ping(object):
     def split_len(seq, length):
         return [seq[i:i + length] for i in range(0, len(seq), length)]
 
-    def get_chunks_from_file(self, filename):
+    @staticmethod
+    def encrypt(text, key):
+        encoded_chars = []
+        for i in range(len(text)):
+            key_c = key[i % len(key)]
+            encoded_c = chr(ord(text[i]) + ord(key_c) % 256)
+            encoded_chars.append(encoded_c)
+        encoded_string = ''.join(encoded_chars)
+        encoded_string = encoded_string.encode('latin') if six.PY3 else encoded_string
+        return base64.urlsafe_b64encode(encoded_string).rstrip(b'=')
+
+    @staticmethod
+    def decrypt(text, key):
+        text = base64.urlsafe_b64decode(text + b'===')
+        text = text.decode('latin') if six.PY3 else text
+        encoded_chars = []
+        for i in range(len(text)):
+            key_c = key[i % len(key)]
+            encoded_c = chr((ord(text[i]) - ord(key_c) + 256) % 256)
+            encoded_chars.append(encoded_c)
+        encoded_string = ''.join(encoded_chars)
+        return encoded_string
+
+    def get_chunks_from_file(self, filename, key):
         with open(filename, 'r') as f:
-            content = f.read()
+            content = self.encrypt(f.read(), key)
         return self.split_len(content, CHUNK_SIZE)
+
+    @staticmethod
+    def generate_random_key():
+        return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5))
 
     def run(self):
         while True:
@@ -159,19 +191,23 @@ class Ping(object):
                     self.process_user_input()
                 elif sender == self.socket:
                     self.process_socket_reply()
-            time.sleep(1)
+            time.sleep(0.3)
 
     def process_user_input(self):
         data = raw_input().split()
-        cmd = data[0]
+        if len(data) == 0:
+            cmd = ""
+        else:
+            cmd = data[0]
         if cmd == 'send':
             filename = data[1]
-            chunks = self.get_chunks_from_file(filename)
+            encryption_key = self.generate_random_key()
+            chunks = self.get_chunks_from_file(filename, encryption_key)
             for i in range(len(chunks)):
                 self.source, self.destination = self.generate_two_random_ips()
                 data = filename + "\n" + chunks[i]
                 self.send_one_ping(self.socket, data, i)
-            self.send_list.append(SentFile(filename, len(chunks)))
+            self.send_list.append(SentFile(filename, len(chunks), encryption_key))
         elif cmd == 'return':
             filename = data[1]
             sent_file = self.get_sent_file_data(filename)
