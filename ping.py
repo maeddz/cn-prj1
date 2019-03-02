@@ -142,7 +142,7 @@ class Ping(object):
         return False
 
     def create_return_message(self, filename):
-        return RETURN_HOME_MESSAGE + "\n" + self.ip + "\n" + filename
+        return "{0}\n{1}\n{2}".format(RETURN_HOME_MESSAGE, self.ip, filename)
 
     def remove_sent_file(self, sent_file):
         self.send_list.remove(sent_file)
@@ -205,7 +205,7 @@ class Ping(object):
             chunks = self.get_chunks_from_file(filename, encryption_key)
             for i in range(len(chunks)):
                 self.source, self.destination = self.generate_two_random_ips()
-                data = filename + "\n" + chunks[i]
+                data = "{0}\n{1}".format(filename, chunks[i])
                 self.send_one_ping(self.socket, data, i)
             self.send_list.append(SentFile(filename, len(chunks), encryption_key))
         elif cmd == 'return':
