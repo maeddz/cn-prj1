@@ -252,8 +252,11 @@ class Ping(object):
 
         if PayloadMessage.is_return_message(received_data):
             ip, filename = PayloadMessage.get_return_message_data(received_data)
-            if self.is_in_send_list(filename) and self.get_sent_file_data(filename).received_all():
-                return
+            if self.is_in_send_list(filename):
+                sent_file = self.get_sent_file_data(filename)
+                if sent_file.received_all():
+                    self.remove_sent_file(sent_file)
+                    return
             if not self.is_in_return_list(filename):
                 self.return_list.append(ReturnRequest(filename, ip))
         else:
@@ -265,7 +268,6 @@ class Ping(object):
                 if sent_file.received_all():
                     print "-All parts of file {0} received!".format(filename)
                     sent_file.save()
-                    self.remove_sent_file(sent_file)
                 return
             elif self.is_in_return_list(filename):
                 print "-Returning packet to owner. Owner ip is {0}".format(self.get_owner_ip(filename))
